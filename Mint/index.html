@@ -1,102 +1,199 @@
-<!-- mintABI.js is still loaded just above this -->
-<script>
-/* =========================================================
-   Global handles
-========================================================= */
-let myWallet   = null;      // active EOA
-let myContract = null;      // web3 Contract instance
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--  
+    ✅ Meta & title
+    The usual UTF-8 charset and viewport tag keep the page responsive.
+  -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
-/* =========================================================
-   Run once after the DOM is ready
-========================================================= */
+  <!--  Tab title -->
+  <title>Mint Denarius (DNU)</title>
+
+  <!--  
+    ✅ Libraries
+    • Tailwind CDN for quick styling 
+    • web3.js (latest) so we can talk to MetaMask / EVM chains 
+    • jQuery (only used for convenience, could be removed later) 
+    • mintABI.js – your contract ABI + address (loaded earlier in the previous step)
+  -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script type="text/javascript" src="./mintABI.js"></script>
+</head>
+
+<!--  
+  Center everything with flexbox; run checkWallet() once the DOM is ready
+-->
+<body class="bg-gray-100 text-gray-800 font-sans flex items-center justify-center min-h-screen"
+      onload="checkWallet()">
+
+  <!--  
+    Main card 
+    ------------- 
+    A clean white container with padding, rounded corners, and Tailwind utility
+    classes. All the UI lives inside this div.
+  -->
+  <div class="bg-white shadow-xl rounded-lg p-8 w-full max-w-md space-y-6">
+    <!-- Page header -->
+    <h1 class="text-2xl font-bold text-center text-indigo-600">
+      Mint Denarius (DNU)
+    </h1>
+
+    <!-- Input: amount to mint -->
+    <div>
+      <label for="tokenAmount" class="block text-sm font-medium">
+        How many tokens to mint?
+      </label>
+      <input
+        type="number"
+        id="tokenAmount"
+        name="tokenAmount"
+        min="1"
+        class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm
+               focus:ring-indigo-500 focus:border-indigo-500">
+    </div>
+
+    <!-- Mint button -->
+    <button
+      onclick="mintTokens()"
+      class="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-md
+             hover:bg-indigo-700 transition">
+      Mint Tokens
+    </button>
+
+    <!-- Wallet-connection status block -->
+    <div id="walletInfo" class="pt-4 border-t">
+      <div class="text-sm font-medium mb-2">Wallet Connection:</div>
+
+      <!-- Status text is updated by checkWallet() -->
+      <div id="walletStatus" class="text-red-500 mb-2">
+        Checking for wallet connection...
+      </div>
+
+      <!-- Visible only when a wallet isn’t connected -->
+      <button
+        id="walletButton"
+        onclick="checkWallet()"
+        class="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300">
+        Connect Wallet
+      </button>
+    </div>
+
+    <!-- Success / error feedback from mintTokens() -->
+    <h3 class="text-center text-blue-600" id="responseMessage"></h3>
+  </div>
+
+  <!--  
+    ───────────────────────────────────────────────
+    Client-side JavaScript
+    ───────────────────────────────────────────────
+  -->
+<script>
+/* ────────────────────────────────────────────────────────────────
+   Global handles
+──────────────────────────────────────────────────────────────── */
+var myWallet   = null;   // active MetaMask account
+var myContract = null;   // web3 Contract instance
+
+/* ────────────────────────────────────────────────────────────────
+   One-time boot
+──────────────────────────────────────────────────────────────── */
 window.addEventListener('DOMContentLoaded', () => {
-  checkWallet();                 // fire immediately
+  checkWallet();                // run as soon as the page is ready
 });
 
-/* =========================================================
-   Wallet-connection workflow
-========================================================= */
+/* ────────────────────────────────────────────────────────────────
+   Connect / re-connect to MetaMask
+──────────────────────────────────────────────────────────────── */
 async function checkWallet () {
-  /* 0. MetaMask present? */
+  const statusEl = document.getElementById('walletStatus');
+  const btnEl    = document.getElementById('walletButton');
+
+  /* 0. Short-circuit if MetaMask is missing */
   if (!window.ethereum) {
-    document.getElementById('walletStatus').textContent =
-      '❌ MetaMask not detected.';
+    statusEl.textContent = '❌ MetaMask not detected.';
     return;
   }
 
   try {
-    /* 1. Do we already have permission? */
+    /* 1. Grab any accounts already authorised for this site            */
     let accounts = await ethereum.request({ method: 'eth_accounts' });
 
-    /* 2. If not, ask for it (⚠️ NO params) */
+    /* 2. If none, prompt the user. **NO params allowed** (EIP-1102).   */
     if (accounts.length === 0) {
       accounts = await ethereum.request({ method: 'eth_requestAccounts' });
     }
 
-    /* 3. Save & show */
+    /* 3. Save the result and update the UI                             */
     myWallet = accounts[0] || null;
     updateWalletUI();
 
-    /* 4. Set up the contract only after we have an account */
-    if (myWallet) contractConnect();
+    /* 4. With a wallet in hand, build the Contract object once         */
+    if (myWallet && !myContract) contractConnect();
 
-    /* 5. Auto-refresh if the user switches accounts */
-    ethereum.removeAllListeners('accountsChanged');   // avoid duplicates
+    /* 5. Auto-refresh if the user switches accounts                    */
+    ethereum.removeAllListeners('accountsChanged');  // avoid duplicates
     ethereum.on('accountsChanged', checkWallet);
 
   } catch (err) {
     console.error('MetaMask error:', err);
-    document.getElementById('walletStatus').textContent =
-      '❌ Wallet connection failed (see console).';
-    document.getElementById('walletButton').hidden = false;
+    statusEl.textContent = '❌ Wallet connection failed (see console).';
+    btnEl.hidden = false;
   }
 }
 
-/* =========================================================
-   Update the little status block
-========================================================= */
+/* ────────────────────────────────────────────────────────────────
+   Tiny helper for the status banner
+──────────────────────────────────────────────────────────────── */
 function updateWalletUI () {
-  const status = document.getElementById('walletStatus');
-  const btn    = document.getElementById('walletButton');
+  const statusEl = document.getElementById('walletStatus');
+  const btnEl    = document.getElementById('walletButton');
 
   if (!myWallet) {
-    status.textContent = 'Click to connect your crypto wallet.';
-    status.className   = 'text-red-500 mb-2';
-    btn.hidden         = false;
+    statusEl.textContent = 'Click to connect your crypto wallet.';
+    statusEl.className   = 'text-red-500 mb-2';
+    btnEl.hidden         = false;
   } else {
-    status.textContent =
+    statusEl.textContent =
       `✅ Wallet connected: ${myWallet.slice(0, 6)}…${myWallet.slice(-4)}`;
-    status.className   = 'text-green-600 mb-2';
-    btn.hidden         = true;
+    statusEl.className   = 'text-green-600 mb-2';
+    btnEl.hidden         = true;
   }
 }
 
-/* =========================================================
-   Instantiate the ERC-20 contract via web3.js
-========================================================= */
+/* ────────────────────────────────────────────────────────────────
+   Instantiate the ERC-20 contract (web3.js)
+──────────────────────────────────────────────────────────────── */
 function contractConnect () {
   const web3 = new Web3(window.ethereum);
   myContract = new web3.eth.Contract(mintABI, mintContractAddress);
 }
 
-/* =========================================================
-   Mint button
-========================================================= */
+/* ────────────────────────────────────────────────────────────────
+   Mint button handler
+──────────────────────────────────────────────────────────────── */
 async function mintTokens () {
-  const val = document.getElementById('tokenAmount').value;
-  if (!val || val <= 0) {
-    alert('Please enter a number greater than zero.'); return;
+  if (!myWallet) { alert('Connect your wallet first.'); return; }
+
+  const raw = parseFloat(document.getElementById('tokenAmount').value);
+  if (!raw || raw <= 0) { alert('Enter a number > 0.'); return; }
+
+  /* Convert to smallest unit (18 decimals) */
+  const amount = (BigInt(Math.floor(raw)) * 10n ** 18n).toString();
+
+  try {
+    await myContract.methods.mintFunction(amount).send({ from: myWallet });
+    document.getElementById('responseMessage').textContent =
+      '✅ Tokens successfully minted!';
+  } catch (err) {
+    console.error(err);
+    document.getElementById('responseMessage').textContent =
+      '❌ Error: ' + err.message;
   }
-
-  const amt = BigInt(val) * 10n ** 18n;   // convert to 18-decimals (uses BigInt)
-
-  myContract.methods.mintFunction(amt.toString()).send({ from: myWallet })
-    .then(()   => document.getElementById('responseMessage').textContent =
-                 '✅ Tokens successfully minted!')
-    .catch(err => {
-      console.error(err);
-      document.getElementById('responseMessage').textContent =
-        '❌ Error: ' + err.message;
-    });
 }
 </script>
+</body>
+</html>
