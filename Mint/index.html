@@ -27,8 +27,7 @@
 <!--  
   Center everything with flexbox; run checkWallet() once the DOM is ready
 -->
-<body class="bg-gray-100 text-gray-800 font-sans flex items-center justify-center min-h-screen"
-      onload="checkWallet()">
+<body class="bg-gray-100 text-gray-800 font-sans flex items-center justify-center min-h-screen">
 
   <!--  
     Main card 
@@ -76,7 +75,7 @@
       <!-- Visible only when a wallet isn’t connected -->
       <button
         id="walletButton"
-        onclick="checkWallet()"
+        onclick="connectWallet()"
         class="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300">
         Connect Wallet
       </button>
@@ -92,97 +91,79 @@
     ───────────────────────────────────────────────
   -->
 <script>
-/* ────────────────────────────────────────────────────────────────
-   Global handles
-──────────────────────────────────────────────────────────────── */
-var myWallet   = null;   // active MetaMask account
-var myContract = null;   // web3 Contract instance
+/* =========================================================
+   Globals
+========================================================= */
+let myWallet   = null;    // active account
+let myContract = null;    // ERC-20 contract
+const POLYGON_ID_HEX = '0x89';   // 137 decimal
 
-/* ────────────────────────────────────────────────────────────────
-   One-time boot
-──────────────────────────────────────────────────────────────── */
-window.addEventListener('DOMContentLoaded', () => {
-  checkWallet();                // run as soon as the page is ready
-});
+/* =========================================================
+   Connect-wallet button
+========================================================= */
+async function connectWallet () {
+  const status = document.getElementById('walletStatus');
 
-/* ────────────────────────────────────────────────────────────────
-   Connect / re-connect to MetaMask
-──────────────────────────────────────────────────────────────── */
-async function checkWallet () {
-  const statusEl = document.getElementById('walletStatus');
-  const btnEl    = document.getElementById('walletButton');
-
-  /* 0. Short-circuit if MetaMask is missing */
-  if (!window.ethereum) {
-    statusEl.textContent = '❌ MetaMask not detected.';
+  /* 1. Ask for accounts (now legal: inside a click handler) */
+  try {
+    const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+    myWallet = accounts[0];
+  } catch (err) {
+    console.error(err);
+    status.textContent = '❌ User rejected connection.';
     return;
   }
 
-  try {
-    /* 1. Grab any accounts already authorised for this site            */
-    let accounts = await ethereum.request({ method: 'eth_accounts' });
-
-    /* 2. If none, prompt the user. **NO params allowed** (EIP-1102).   */
-    if (accounts.length === 0) {
-      accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+  /* 2. Make sure we’re on Polygon; if not, prompt to switch / add */
+  if (ethereum.chainId !== POLYGON_ID_HEX) {
+    try {
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: POLYGON_ID_HEX }]
+      });
+    } catch (switchErr) {
+      /* If the chain hasn’t been added to MetaMask, add it */
+      if (switchErr.code === 4902) {
+        await ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainName: 'Polygon PoS',
+            chainId:  POLYGON_ID_HEX,
+            nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+            rpcUrls: ['https://polygon-rpc.com/'],
+            blockExplorerUrls: ['https://polygonscan.com/']
+          }]
+        });
+      } else {
+        console.error(switchErr);
+        status.textContent = '❌ Couldn’t switch to Polygon.';
+        return;
+      }
     }
-
-    /* 3. Save the result and update the UI                             */
-    myWallet = accounts[0] || null;
-    updateWalletUI();
-
-    /* 4. With a wallet in hand, build the Contract object once         */
-    if (myWallet && !myContract) contractConnect();
-
-    /* 5. Auto-refresh if the user switches accounts                    */
-    ethereum.removeAllListeners('accountsChanged');  // avoid duplicates
-    ethereum.on('accountsChanged', checkWallet);
-
-  } catch (err) {
-    console.error('MetaMask error:', err);
-    statusEl.textContent = '❌ Wallet connection failed (see console).';
-    btnEl.hidden = false;
   }
-}
 
-/* ────────────────────────────────────────────────────────────────
-   Tiny helper for the status banner
-──────────────────────────────────────────────────────────────── */
-function updateWalletUI () {
-  const statusEl = document.getElementById('walletStatus');
-  const btnEl    = document.getElementById('walletButton');
-
-  if (!myWallet) {
-    statusEl.textContent = 'Click to connect your crypto wallet.';
-    statusEl.className   = 'text-red-500 mb-2';
-    btnEl.hidden         = false;
-  } else {
-    statusEl.textContent =
-      `✅ Wallet connected: ${myWallet.slice(0, 6)}…${myWallet.slice(-4)}`;
-    statusEl.className   = 'text-green-600 mb-2';
-    btnEl.hidden         = true;
-  }
-}
-
-/* ────────────────────────────────────────────────────────────────
-   Instantiate the ERC-20 contract (web3.js)
-──────────────────────────────────────────────────────────────── */
-function contractConnect () {
+  /* 3. Build the contract instance once */
   const web3 = new Web3(window.ethereum);
   myContract = new web3.eth.Contract(mintABI, mintContractAddress);
+
+  /* 4. UI */
+  updateWalletUI();
+
+  /* 5. Watch for the user changing accounts */
+  ethereum.removeAllListeners('accountsChanged');
+  ethereum.on('accountsChanged', () => { location.reload(); });
 }
 
-/* ────────────────────────────────────────────────────────────────
-   Mint button handler
-──────────────────────────────────────────────────────────────── */
+/* =========================================================
+   Mint button
+========================================================= */
 async function mintTokens () {
   if (!myWallet) { alert('Connect your wallet first.'); return; }
 
-  const raw = parseFloat(document.getElementById('tokenAmount').value);
-  if (!raw || raw <= 0) { alert('Enter a number > 0.'); return; }
+  const raw = Number(document.getElementById('tokenAmount').value);
+  if (!raw || raw <= 0) { alert('Enter a number > 0'); return; }
 
-  /* Convert to smallest unit (18 decimals) */
-  const amount = (BigInt(Math.floor(raw)) * 10n ** 18n).toString();
+  const amount = (BigInt(raw) * 10n ** 18n).toString(); // 18 decimals
 
   try {
     await myContract.methods.mintFunction(amount).send({ from: myWallet });
@@ -193,6 +174,18 @@ async function mintTokens () {
     document.getElementById('responseMessage').textContent =
       '❌ Error: ' + err.message;
   }
+}
+
+/* =========================================================
+   UI helper
+========================================================= */
+function updateWalletUI () {
+  const status = document.getElementById('walletStatus');
+  const button = document.getElementById('walletButton');
+  status.textContent =
+    `✅ ${myWallet.slice(0,6)}…${myWallet.slice(-4)} (Polygon)`;
+  status.className = 'text-green-600 mb-2';
+  button.hidden = true;
 }
 </script>
 </body>
