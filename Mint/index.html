@@ -106,34 +106,53 @@
      * • Updates UI with the result.
      * • Finally calls contractConnect() to set up the contract object.
      */
-    async function checkWallet() {
-      // Request already-authorized accounts
-      let accountList = await ethereum.request({ method: 'eth_accounts' });
-      myWallet = accountList[0];
-
-      // If not authorized yet, ask the user to connect
-      if (!myWallet) {
-        await window.ethereum.request({
-          method: "eth_requestAccounts",
-          params: [{ eth_accounts: {} }]
-        });
-        accountList = await ethereum.request({ method: 'eth_accounts' });
-        myWallet = accountList[0];
+<script>
+  async function checkWallet() {
+    try {
+      /* 1️⃣  Do we already have permission? */
+      let accounts = await ethereum.request({ method: 'eth_accounts' });
+      if (accounts.length === 0) {
+        /* 2️⃣  Ask MetaMask for permission — **no parameters allowed** */
+        await ethereum.request({ method: 'eth_requestAccounts' });
+        accounts = await ethereum.request({ method: 'eth_accounts' });
       }
 
-      // Update DOM based on connection status
-      if (!myWallet) {
-        document.getElementById('walletStatus').innerHTML =
-          "Click to connect your crypto wallet.";
-        document.getElementById('walletButton').hidden = false;
-      } else {
-        document.getElementById('walletStatus').innerHTML =
-          "✅ Wallet connected: " +
-          myWallet.slice(0, 6) + "…" + myWallet.slice(-4);
-        document.getElementById('walletStatus').classList
-                .replace("text-red-500", "text-green-600");
-        document.getElementById('walletButton').hidden = true;
-      }
+      /* 3️⃣  Update global + UI */
+      myWallet = accounts[0] || null;
+      updateWalletUI();
+      contractConnect();   // keep the rest of your flow
+
+      /* 4️⃣  Listen for the user switching accounts */
+      ethereum.on('accountsChanged', () => {
+        checkWallet();     // re-run to refresh everything
+      });
+
+    } catch (err) {
+      console.error('MetaMask connection error:', err);
+      document.getElementById('walletStatus').textContent =
+        '❌ Wallet connection failed. See console.';
+      document.getElementById('walletButton').hidden = false;
+    }
+  }
+
+  /* Helper to keep UI code tidy */
+  function updateWalletUI() {
+    const status = document.getElementById('walletStatus');
+    const button = document.getElementById('walletButton');
+
+    if (!myWallet) {
+      status.textContent = 'Click to connect your crypto wallet.';
+      status.classList.replace('text-green-600', 'text-red-500');
+      button.hidden = false;
+    } else {
+      status.textContent =
+        `✅ Wallet connected: ${myWallet.slice(0,6)}…${myWallet.slice(-4)}`;
+      status.classList.replace('text-red-500', 'text-green-600');
+      button.hidden = true;
+    }
+  }
+</script>
+
 
       // Now that we (hopefully) have a wallet, set up the contract
       contractConnect();
