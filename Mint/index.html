@@ -1,93 +1,197 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!--  
+    ✅ Meta & title
+    The usual UTF-8 charset and viewport tag keep the page responsive.
+  -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+  <!--  Tab title -->
   <title>Mint Denarius (DNU)</title>
+
+  <!--  
+    ✅ Libraries
+    • Tailwind CDN for quick styling 
+    • web3.js (latest) so we can talk to MetaMask / EVM chains 
+    • jQuery (only used for convenience, could be removed later) 
+    • mintABI.js – your contract ABI + address (loaded earlier in the previous step)
+  -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
   <script type="text/javascript" src="./mintABI.js"></script>
 </head>
-<body class="bg-gray-100 text-gray-800 font-sans flex items-center justify-center min-h-screen" onload="checkWallet()">
 
+<!--  
+  Center everything with flexbox; run checkWallet() once the DOM is ready
+-->
+<body class="bg-gray-100 text-gray-800 font-sans flex items-center justify-center min-h-screen"
+      onload="checkWallet()">
+
+  <!--  
+    Main card 
+    ------------- 
+    A clean white container with padding, rounded corners, and Tailwind utility
+    classes. All the UI lives inside this div.
+  -->
   <div class="bg-white shadow-xl rounded-lg p-8 w-full max-w-md space-y-6">
-    <h1 class="text-2xl font-bold text-center text-indigo-600">Mint Denarius (DNU)</h1>
+    <!-- Page header -->
+    <h1 class="text-2xl font-bold text-center text-indigo-600">
+      Mint Denarius (DNU)
+    </h1>
 
+    <!-- Input: amount to mint -->
     <div>
-      <label for="tokenAmount" class="block text-sm font-medium">How many tokens to mint?</label>
-      <input type="number" id="tokenAmount" name="tokenAmount" min="1" class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+      <label for="tokenAmount" class="block text-sm font-medium">
+        How many tokens to mint?
+      </label>
+      <input
+        type="number"
+        id="tokenAmount"
+        name="tokenAmount"
+        min="1"
+        class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm
+               focus:ring-indigo-500 focus:border-indigo-500">
     </div>
 
-    <button onclick="mintTokens()" class="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition">Mint Tokens</button>
+    <!-- Mint button -->
+    <button
+      onclick="mintTokens()"
+      class="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-md
+             hover:bg-indigo-700 transition">
+      Mint Tokens
+    </button>
 
+    <!-- Wallet-connection status block -->
     <div id="walletInfo" class="pt-4 border-t">
       <div class="text-sm font-medium mb-2">Wallet Connection:</div>
-      <div id="walletStatus" class="text-red-500 mb-2">Checking for wallet connection...</div>
-      <button id="walletButton" onclick="checkWallet()" class="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300">Connect Wallet</button>
+
+      <!-- Status text is updated by checkWallet() -->
+      <div id="walletStatus" class="text-red-500 mb-2">
+        Checking for wallet connection...
+      </div>
+
+      <!-- Visible only when a wallet isn’t connected -->
+      <button
+        id="walletButton"
+        onclick="checkWallet()"
+        class="py-2 px-4 bg-gray-200 rounded-md hover:bg-gray-300">
+        Connect Wallet
+      </button>
     </div>
 
+    <!-- Success / error feedback from mintTokens() -->
     <h3 class="text-center text-blue-600" id="responseMessage"></h3>
   </div>
 
+  <!--  
+    ───────────────────────────────────────────────
+    Client-side JavaScript
+    ───────────────────────────────────────────────
+  -->
   <script>
+    // The user’s wallet address (once connected)
     var myWallet;
+
+    // web3 Contract instance (populated in contractConnect)
     var myContract;
 
+    /**
+     * checkWallet()
+     * --------------
+     * • Looks for existing MetaMask accounts.
+     * • If none, prompts user to connect.
+     * • Updates UI with the result.
+     * • Finally calls contractConnect() to set up the contract object.
+     */
     async function checkWallet() {
+      // Request already-authorized accounts
       let accountList = await ethereum.request({ method: 'eth_accounts' });
       myWallet = accountList[0];
 
+      // If not authorized yet, ask the user to connect
       if (!myWallet) {
         await window.ethereum.request({
           method: "eth_requestAccounts",
           params: [{ eth_accounts: {} }]
         });
-
         accountList = await ethereum.request({ method: 'eth_accounts' });
         myWallet = accountList[0];
       }
 
+      // Update DOM based on connection status
       if (!myWallet) {
-        document.getElementById('walletStatus').innerHTML = "Click to connect your crypto wallet.";
+        document.getElementById('walletStatus').innerHTML =
+          "Click to connect your crypto wallet.";
         document.getElementById('walletButton').hidden = false;
       } else {
-        document.getElementById('walletStatus').innerHTML = "✅ Wallet connected: " + myWallet.slice(0, 6) + "..." + myWallet.slice(-4);
-        document.getElementById('walletStatus').classList.remove("text-red-500");
-        document.getElementById('walletStatus').classList.add("text-green-600");
+        document.getElementById('walletStatus').innerHTML =
+          "✅ Wallet connected: " +
+          myWallet.slice(0, 6) + "…" + myWallet.slice(-4);
+        document.getElementById('walletStatus').classList
+                .replace("text-red-500", "text-green-600");
         document.getElementById('walletButton').hidden = true;
       }
 
+      // Now that we (hopefully) have a wallet, set up the contract
       contractConnect();
     }
 
+    /**
+     * contractConnect()
+     * -----------------
+     * Uses web3.js to create a Contract object tied to the ABI/address
+     * declared in mintABI.js.  ChainId 137 = Polygon mainnet; adjust if
+     * you deploy elsewhere.
+     */
     async function contractConnect() {
       if (window.ethereum) {
         const web3 = new Web3(window.ethereum);
-        myContract = new web3.eth.Contract(mintABI, mintContractAddress, { chainId: 137 });
+        myContract = new web3.eth.Contract(
+          mintABI,            // ABI array
+          mintContractAddress,// Deployed contract address
+          { chainId: 137 }    // Optional: lock to Polygon
+        );
       }
     }
 
+    /**
+     * mintTokens()
+     * ------------
+     * • Reads user input, validates it,
+     * • Multiplies by 10¹⁸ to convert whole DNU to wei-like units,
+     * • Calls the contract’s mintFunction,
+     * • Then updates the UI with success/failure.
+     */
     async function mintTokens() {
+      // Get amount from <input>
       const mintAmount = document.getElementById('tokenAmount').value;
+
+      // Client-side validation
       if (mintAmount <= 0 || !mintAmount) {
         alert('Please enter a valid number greater than zero.');
         return;
       }
 
+      // Solidity expects the smallest unit (18 decimals for ERC-20)
       const mintWholeNumber = mintAmount * 10 ** 18;
 
-      myContract.methods.mintFunction(mintWholeNumber).send({ from: myWallet })
+      // Call the smart-contract function
+      myContract.methods.mintFunction(mintWholeNumber)
+        .send({ from: myWallet })
         .then((result) => {
           console.log(result);
-          document.getElementById('responseMessage').innerText = "✅ Tokens successfully minted!";
+          document.getElementById('responseMessage').innerText =
+            "✅ Tokens successfully minted!";
         })
         .catch((error) => {
           console.error(error);
-          document.getElementById('responseMessage').innerText = "❌ Error: " + error.message;
+          document.getElementById('responseMessage').innerText =
+            "❌ Error: " + error.message;
         });
     }
   </script>
 </body>
 </html>
-
