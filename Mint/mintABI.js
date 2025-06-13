@@ -2,7 +2,7 @@
 // Address of the deployed ERC-20 “MINT” contract.
 // Update this if you redeploy to a different network.
 // -----------------------------------------------------------------------------
-const mintContractAddress = '0x85cD9A928528C5a6258Fc4CD63d1c4F68151Eb58'; 
+const mintContractAddress = '0x277dcF8AFAF584Ff3F1377E963E78EfCe987A82F'; 
 
 // -----------------------------------------------------------------------------
 // Application Binary Interface (ABI)
